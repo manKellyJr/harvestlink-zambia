@@ -5,12 +5,13 @@ import { getDb } from "@/db/client";
 import { DomainError } from "@/domain/errors";
 import { normalisePhone } from "@/domain/phone";
 import { parseKwacha } from "@/domain/money";
-import { findUserByPhone, registerUser } from "@/domain/users";
+import { bootstrapAdmin, findUserByPhone, registerUser } from "@/domain/users";
 import { placeOrder, cancelOrder, confirmDelivery } from "@/domain/orders";
 import { markPayoutSent } from "@/domain/payouts";
 import { sendLoginCode, checkLoginCode } from "@/auth/otp";
 import { endSession, requireSessionRole, startSession } from "@/auth/session";
 import { sign, verify } from "@/auth/sign";
+import { homeFor } from "@/auth/home";
 import { runAction, field } from "@/web/action";
 
 const PENDING = "hl_pending_signup";
@@ -20,9 +21,9 @@ export async function requestLogin(form: FormData) {
   return runAction("/login", async () => {
     const db = await getDb();
     const phone = normalisePhone(field(form, "phone"));
-    const user = await findUserByPhone(db, phone);
+    const user = (await findUserByPhone(db, phone)) ?? (await bootstrapAdmin(db, phone));
     if (!user) throw new DomainError("This number is not registered. Sign up first.");
-    if (user.role !== "buyer" && user.role !== "admin") {
+    if (user.role === "farmer" || user.role === "transporter") {
       throw new DomainError("Farmers and transporters use the USSD menu on their phone.");
     }
     await sendLoginCode(db, phone);
@@ -65,8 +66,9 @@ export async function verifyLogin(form: FormData) {
     }
     jar.delete(PENDING);
     if (!user) throw new DomainError("This number is not registered.");
+    if (!user.active) throw new DomainError("This account is suspended.");
     await startSession(user.id);
-    return "/buyer";
+    return homeFor(user.role);
   });
 }
 
@@ -83,6 +85,7 @@ export async function createOrder(form: FormData) {
     price: field(form, "pricePerKg"),
     fee: field(form, "transportFee"),
     addr: field(form, "deliveryAddress"),
+    grade: field(form, "minGrade"),
   });
   return runAction(`/buyer?${keep}`, async () => {
     const buyer = await requireSessionRole("buyer");
@@ -93,6 +96,7 @@ export async function createOrder(form: FormData) {
       pricePerKgNgwee: parseKwacha(field(form, "pricePerKg")),
       transportFeeNgwee: parseKwacha(field(form, "transportFee") || "0"),
       deliveryAddress: field(form, "deliveryAddress"),
+      minGrade: field(form, "minGrade") === "A" ? "A" : "B",
     });
     return "/buyer?notice=Order%20placed.%20Farmers%20and%20transporters%20have%20been%20notified.";
   });

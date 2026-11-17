@@ -18,12 +18,16 @@ import {
   index,
 } from "drizzle-orm/pg-core";
 
-export const roleEnum = pgEnum("role", ["farmer", "buyer", "transporter", "admin"]);
+// agent = HarvestLink field officer at a collection point who weighs and grades lots.
+export const roleEnum = pgEnum("role", ["farmer", "buyer", "transporter", "agent", "admin"]);
+export const gradeEnum = pgEnum("grade", ["A", "B"]);
 export const walletProviderEnum = pgEnum("wallet_provider", ["mtn", "airtel", "zamtel"]);
 export const lotStatusEnum = pgEnum("lot_status", [
-  "listed", // some kilograms still available at the collection point
+  "awaiting_checkin", // farmer listed it by USSD; not yet weighed at the collection point
+  "listed", // weighed and graded; some kilograms still available to buyers
   "sold_out", // every kilogram is allocated to buyer orders
   "cancelled", // withdrawn by the farmer before any allocation
+  "rejected", // failed quality check at the collection point
 ]);
 export const orderStatusEnum = pgEnum("order_status", [
   "allocated", // supply reserved from farmer lots, waiting for a transporter
@@ -50,6 +54,8 @@ export const users = pgTable(
     role: roleEnum("role").notNull(),
     district: text("district"),
     walletProvider: walletProviderEnum("wallet_provider"),
+    // Agents only: the collection point they work at.
+    collectionPointId: integer("collection_point_id"),
     // Explicit consent to store and process personal data (Data Protection Act 2021).
     consentAt: timestamp("consent_at", { withTimezone: true }),
     active: boolean("active").notNull().default(true),
@@ -79,12 +85,18 @@ export const lots = pgTable(
       .notNull()
       .references(() => collectionPoints.id),
     crop: text("crop").notNull(),
-    quantityKg: integer("quantity_kg").notNull(),
+    // What the farmer said over USSD. Never used for payment.
+    declaredKg: integer("declared_kg").notNull(),
+    // Weighed kg after check-in (0 before). Payments are based on this figure only.
+    quantityKg: integer("quantity_kg").notNull().default(0),
+    grade: gradeEnum("grade"),
+    checkedInAt: timestamp("checked_in_at", { withTimezone: true }),
+    checkedInBy: integer("checked_in_by").references(() => users.id),
     // Kilograms not yet allocated to any order.
-    availableKg: integer("available_kg").notNull(),
+    availableKg: integer("available_kg").notNull().default(0),
     // Farmer's minimum acceptable price; lots are only matched to orders paying at least this.
     minPricePerKgNgwee: integer("min_price_per_kg_ngwee").notNull(),
-    status: lotStatusEnum("status").notNull().default("listed"),
+    status: lotStatusEnum("status").notNull().default("awaiting_checkin"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("lots_matching_idx").on(t.collectionPointId, t.crop, t.status)],
@@ -101,6 +113,8 @@ export const orders = pgTable("orders", {
   crop: text("crop").notNull(),
   quantityKg: integer("quantity_kg").notNull(),
   pricePerKgNgwee: integer("price_per_kg_ngwee").notNull(),
+  // Lowest acceptable grade: "B" accepts A and B, "A" accepts only A.
+  minGrade: gradeEnum("min_grade").notNull().default("B"),
   transportFeeNgwee: integer("transport_fee_ngwee").notNull(),
   deliveryAddress: text("delivery_address").notNull(),
   transporterId: integer("transporter_id").references(() => users.id),
@@ -168,7 +182,8 @@ export const smsOutbox = pgTable("sms_outbox", {
   id: serial("id").primaryKey(),
   phone: text("phone").notNull(),
   body: text("body").notNull(),
-  status: text("status").notNull().default("queued"),
+  status: text("status").notNull().default("queued"), // queued | sent | failed
+  attempts: integer("attempts").notNull().default(0),
   providerRef: text("provider_ref"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -190,4 +205,5 @@ export type Lot = typeof lots.$inferSelect;
 export type Order = typeof orders.$inferSelect;
 export type Payout = typeof payouts.$inferSelect;
 export type Role = (typeof roleEnum.enumValues)[number];
+export type Grade = (typeof gradeEnum.enumValues)[number];
 export type WalletProvider = (typeof walletProviderEnum.enumValues)[number];

@@ -3,6 +3,7 @@ import Link from "next/link";
 import "./globals.css";
 import { currentUser } from "@/auth/session";
 import { logout } from "./actions";
+import { homeFor } from "@/auth/home";
 
 export const metadata: Metadata = {
   title: "HarvestLink Zambia",
@@ -19,7 +20,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <Link href="/" className="brand">HarvestLink</Link>
             {user ? (
               <form action={logout} className="inline">
-                <span className="muted">{user.name}</span>
+                <Link href={homeFor(user.role)}>{user.name}</Link>
                 <button className="secondary" type="submit">Log out</button>
               </form>
             ) : (
@@ -28,6 +29,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           </div>
         </header>
         <main className="wrap">{children}</main>
+        <footer className="wrap muted"><Link href="/privacy">Privacy notice</Link></footer>
       </body>
     </html>
   );

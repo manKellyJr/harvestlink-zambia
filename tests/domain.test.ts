@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { eq } from "drizzle-orm";
-import { freshDb, seedBasics, sent } from "./helpers";
+import { freshDb, seedBasics, sent, listWeighed } from "./helpers";
 import type { Db } from "@/db/client";
 import { lots, orders, payouts, auditEvents } from "@/db/schema";
 import { listLot, cancelLot, supplyByCollectionPoint } from "@/domain/lots";
@@ -56,9 +56,9 @@ describe("marketplace flow", () => {
   });
 
   it("bulks small lots into one order, oldest first, respecting farmer minimum prices", async () => {
-    const a = await listLot(db, s.farmerA.id, { collectionPointId: s.cp.id, quantityKg: 300, minPricePerKgNgwee: 900 });
-    const b = await listLot(db, s.farmerB.id, { collectionPointId: s.cp.id, quantityKg: 500, minPricePerKgNgwee: 950 });
-    const tooExpensive = await listLot(db, s.farmerB.id, { collectionPointId: s.cp.id, quantityKg: 1000, minPricePerKgNgwee: 2000 });
+    const a = await listWeighed(db, s, s.farmerA.id, 300, 900);
+    const b = await listWeighed(db, s, s.farmerB.id, 500, 950);
+    const tooExpensive = await listWeighed(db, s, s.farmerB.id, 1000, 2000);
 
     const [supply] = await supplyByCollectionPoint(db);
     expect(supply.availableKg).toBe(1800);
@@ -74,8 +74,8 @@ describe("marketplace flow", () => {
   });
 
   it("runs the full lifecycle and pays each farmer directly", async () => {
-    await listLot(db, s.farmerA.id, { collectionPointId: s.cp.id, quantityKg: 300, minPricePerKgNgwee: 900 });
-    await listLot(db, s.farmerB.id, { collectionPointId: s.cp.id, quantityKg: 500, minPricePerKgNgwee: 900 });
+    await listWeighed(db, s, s.farmerA.id, 300, 900);
+    await listWeighed(db, s, s.farmerB.id, 500, 900);
     const o = await order(800, 1000);
 
     await expect(markPickedUp(db, s.transporter.id, o.id)).rejects.toThrow();
@@ -113,7 +113,7 @@ describe("marketplace flow", () => {
   });
 
   it("cancelling an order returns produce to the farmers", async () => {
-    const a = await listLot(db, s.farmerA.id, { collectionPointId: s.cp.id, quantityKg: 300, minPricePerKgNgwee: 900 });
+    const a = await listWeighed(db, s, s.farmerA.id, 300, 900);
     const o = await order(300);
     await expect(cancelLot(db, s.farmerA.id, a.id)).rejects.toThrow();
     await cancelOrder(db, s.buyer.id, o.id);

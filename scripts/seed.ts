@@ -5,7 +5,7 @@
  */
 import { getDb } from "../src/db/client";
 import { collectionPoints, users } from "../src/db/schema";
-import { listLot } from "../src/domain/lots";
+import { checkInLot, listLot } from "../src/domain/lots";
 import { pilot } from "../src/domain/config";
 
 // Placeholder sites: replace with the real depots agreed with farmer groups.
@@ -39,9 +39,19 @@ async function main() {
       { phone: "+260950000020", name: "Demo Transporter", role: "transporter", district: "Mkushi", walletProvider: "zamtel", consentAt: now },
     ])
     .returning();
-  await listLot(db, demo[0].id, { collectionPointId: cps[0].id, quantityKg: 400, minPricePerKgNgwee: 900 });
-  await listLot(db, demo[1].id, { collectionPointId: cps[0].id, quantityKg: 750, minPricePerKgNgwee: 950 });
-  console.log("Created demo accounts. Buyer login: 0970000010 (code is printed in the dev server log)");
+  const [admin, agent] = await db
+    .insert(users)
+    .values([
+      { phone: "+260970000099", name: "Demo Admin", role: "admin", consentAt: now },
+      { phone: "+260970000050", name: "Demo Agent Mkushi", role: "agent", district: "Mkushi", collectionPointId: cps[0].id, consentAt: now },
+    ])
+    .returning();
+  const a = await listLot(db, demo[0].id, { collectionPointId: cps[0].id, quantityKg: 400, minPricePerKgNgwee: 900 });
+  const b = await listLot(db, demo[1].id, { collectionPointId: cps[0].id, quantityKg: 750, minPricePerKgNgwee: 950 });
+  await listLot(db, demo[0].id, { collectionPointId: cps[0].id, quantityKg: 300, minPricePerKgNgwee: 900 });
+  await checkInLot(db, agent.id, a.id, { weighedKg: 392, grade: "A" });
+  await checkInLot(db, admin.id, b.id, { weighedKg: 760, grade: "B" });
+  console.log("Demo logins (codes print in the dev server log): buyer 0970000010, agent 0970000050, admin 0970000099");
 }
 main().then(() => process.exit(0)).catch((e) => {
   console.error(e);

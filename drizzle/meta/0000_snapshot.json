@@ -1,5 +1,5 @@
 {
-  "id": "fe23abb5-7e29-4cc5-8ecd-e7a44cd23fe7",
+  "id": "6bb1b66d-0e35-49e7-b593-18705307c560",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -296,17 +296,44 @@
           "primaryKey": false,
           "notNull": true
         },
+        "declared_kg": {
+          "name": "declared_kg",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
         "quantity_kg": {
           "name": "quantity_kg",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": 0
+        },
+        "grade": {
+          "name": "grade",
+          "type": "grade",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "checked_in_at": {
+          "name": "checked_in_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "checked_in_by": {
+          "name": "checked_in_by",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
         },
         "available_kg": {
           "name": "available_kg",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": 0
         },
         "min_price_per_kg_ngwee": {
           "name": "min_price_per_kg_ngwee",
@@ -320,7 +347,7 @@
           "typeSchema": "public",
           "primaryKey": false,
           "notNull": true,
-          "default": "'listed'"
+          "default": "'awaiting_checkin'"
         },
         "created_at": {
           "name": "created_at",
@@ -385,6 +412,19 @@
           ],
           "onDelete": "no action",
           "onUpdate": "no action"
+        },
+        "lots_checked_in_by_users_id_fk": {
+          "name": "lots_checked_in_by_users_id_fk",
+          "tableFrom": "lots",
+          "tableTo": "users",
+          "columnsFrom": [
+            "checked_in_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -432,6 +472,14 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true
+        },
+        "min_grade": {
+          "name": "min_grade",
+          "type": "grade",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'B'"
         },
         "transport_fee_ngwee": {
           "name": "transport_fee_ngwee",
@@ -684,6 +732,13 @@
           "notNull": true,
           "default": "'queued'"
         },
+        "attempts": {
+          "name": "attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
         "provider_ref": {
           "name": "provider_ref",
           "type": "text",
@@ -748,6 +803,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "collection_point_id": {
+          "name": "collection_point_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
         "consent_at": {
           "name": "consent_at",
           "type": "timestamp with time zone",
@@ -795,13 +856,23 @@
     }
   },
   "enums": {
+    "public.grade": {
+      "name": "grade",
+      "schema": "public",
+      "values": [
+        "A",
+        "B"
+      ]
+    },
     "public.lot_status": {
       "name": "lot_status",
       "schema": "public",
       "values": [
+        "awaiting_checkin",
         "listed",
         "sold_out",
-        "cancelled"
+        "cancelled",
+        "rejected"
       ]
     },
     "public.order_status": {
@@ -841,6 +912,7 @@
         "farmer",
         "buyer",
         "transporter",
+        "agent",
         "admin"
       ]
     },

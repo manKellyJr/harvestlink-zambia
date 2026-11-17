@@ -4,6 +4,8 @@ import type { Db } from "@/db/client";
 import { handleUssd } from "@/ussd/engine";
 import { findUserByPhone } from "@/domain/users";
 import { placeOrder, confirmDelivery } from "@/domain/orders";
+import { checkInLot } from "@/domain/lots";
+import { setUserActive } from "@/domain/admin";
 
 describe("USSD", () => {
   let db: Db;
@@ -30,15 +32,18 @@ describe("USSD", () => {
     const p = s.farmerA.phone;
     expect(await dial(p, "1")).toMatch(/Mkushi Depot/);
     expect(await dial(p, "1*1*500*9.50")).toMatch(/Sell 500kg soybeans at Mkushi Depot for at least K9.50\/kg/);
-    expect(await dial(p, "1*1*500*9.50*1")).toMatch(/^END Listed as lot #1/);
+    expect(await dial(p, "1*1*500*9.50*1")).toMatch(/^END Lot #1 registered. Bring it to Mkushi Depot to be weighed/);
     expect(await dial(p, "1*1*10*9*1")).toMatch(/^END Quantity must be between/);
     expect(await dial(p, "1*1*500*abc")).toMatch(/^END Enter an amount/);
     expect(await dial(p, "1*9")).toMatch(/^END Invalid choice/);
-    expect(await dial(p, "2")).toMatch(/#1 500kg 500kg unsold/);
+    expect(await dial(p, "2")).toMatch(/#1 500kg to be weighed/);
+    await checkInLot(db, s.agent.id, 1, { weighedKg: 480, grade: "A" });
+    expect(await dial(p, "2")).toMatch(/#1 480kg 480kg unsold/);
   });
 
   it("transporter accepts and picks up, farmer confirms payment", async () => {
     await dial(s.farmerA.phone, "1*1*300*9*1");
+    await checkInLot(db, s.agent.id, 1, { weighedKg: 300, grade: "B" });
     const o = await placeOrder(db, s.buyer.id, {
       collectionPointId: s.cp.id, quantityKg: 300, pricePerKgNgwee: 1000, transportFeeNgwee: 0, deliveryAddress: "Mkushi boma",
     });
@@ -53,7 +58,10 @@ describe("USSD", () => {
     expect(await dial(s.farmerA.phone, "4")).toMatch(/Mkushi Depot: K10.00\/kg/);
   });
 
-  it("sends buyers to the website", async () => {
+  it("sends buyers and staff to the website, and blocks suspended accounts", async () => {
     expect(await dial(s.buyer.phone, "")).toMatch(/website/);
+    expect(await dial(s.agent.phone, "")).toMatch(/website/);
+    await setUserActive(db, s.admin.id, s.farmerA.id, false);
+    expect(await dial(s.farmerA.phone, "")).toMatch(/suspended/);
   });
 });

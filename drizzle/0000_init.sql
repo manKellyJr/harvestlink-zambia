@@ -1,8 +1,9 @@
-CREATE TYPE "public"."lot_status" AS ENUM('listed', 'sold_out', 'cancelled');--> statement-breakpoint
+CREATE TYPE "public"."grade" AS ENUM('A', 'B');--> statement-breakpoint
+CREATE TYPE "public"."lot_status" AS ENUM('awaiting_checkin', 'listed', 'sold_out', 'cancelled', 'rejected');--> statement-breakpoint
 CREATE TYPE "public"."order_status" AS ENUM('allocated', 'assigned', 'picked_up', 'delivered', 'completed', 'cancelled');--> statement-breakpoint
 CREATE TYPE "public"."payee_type" AS ENUM('farmer', 'transporter');--> statement-breakpoint
 CREATE TYPE "public"."payout_status" AS ENUM('owed', 'buyer_marked_paid', 'confirmed', 'disputed');--> statement-breakpoint
-CREATE TYPE "public"."role" AS ENUM('farmer', 'buyer', 'transporter', 'admin');--> statement-breakpoint
+CREATE TYPE "public"."role" AS ENUM('farmer', 'buyer', 'transporter', 'agent', 'admin');--> statement-breakpoint
 CREATE TYPE "public"."wallet_provider" AS ENUM('mtn', 'airtel', 'zamtel');--> statement-breakpoint
 CREATE TABLE "allocations" (
 	"id" serial PRIMARY KEY NOT NULL,
@@ -46,10 +47,14 @@ CREATE TABLE "lots" (
 	"farmer_id" integer NOT NULL,
 	"collection_point_id" integer NOT NULL,
 	"crop" text NOT NULL,
-	"quantity_kg" integer NOT NULL,
-	"available_kg" integer NOT NULL,
+	"declared_kg" integer NOT NULL,
+	"quantity_kg" integer DEFAULT 0 NOT NULL,
+	"grade" "grade",
+	"checked_in_at" timestamp with time zone,
+	"checked_in_by" integer,
+	"available_kg" integer DEFAULT 0 NOT NULL,
 	"min_price_per_kg_ngwee" integer NOT NULL,
-	"status" "lot_status" DEFAULT 'listed' NOT NULL,
+	"status" "lot_status" DEFAULT 'awaiting_checkin' NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
@@ -60,6 +65,7 @@ CREATE TABLE "orders" (
 	"crop" text NOT NULL,
 	"quantity_kg" integer NOT NULL,
 	"price_per_kg_ngwee" integer NOT NULL,
+	"min_grade" "grade" DEFAULT 'B' NOT NULL,
 	"transport_fee_ngwee" integer NOT NULL,
 	"delivery_address" text NOT NULL,
 	"transporter_id" integer,
@@ -87,6 +93,7 @@ CREATE TABLE "sms_outbox" (
 	"phone" text NOT NULL,
 	"body" text NOT NULL,
 	"status" text DEFAULT 'queued' NOT NULL,
+	"attempts" integer DEFAULT 0 NOT NULL,
 	"provider_ref" text,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
@@ -98,6 +105,7 @@ CREATE TABLE "users" (
 	"role" "role" NOT NULL,
 	"district" text,
 	"wallet_provider" "wallet_provider",
+	"collection_point_id" integer,
 	"consent_at" timestamp with time zone,
 	"active" boolean DEFAULT true NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
@@ -108,6 +116,7 @@ ALTER TABLE "allocations" ADD CONSTRAINT "allocations_lot_id_lots_id_fk" FOREIGN
 ALTER TABLE "audit_events" ADD CONSTRAINT "audit_events_actor_id_users_id_fk" FOREIGN KEY ("actor_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "lots" ADD CONSTRAINT "lots_farmer_id_users_id_fk" FOREIGN KEY ("farmer_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "lots" ADD CONSTRAINT "lots_collection_point_id_collection_points_id_fk" FOREIGN KEY ("collection_point_id") REFERENCES "public"."collection_points"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "lots" ADD CONSTRAINT "lots_checked_in_by_users_id_fk" FOREIGN KEY ("checked_in_by") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "orders" ADD CONSTRAINT "orders_buyer_id_users_id_fk" FOREIGN KEY ("buyer_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "orders" ADD CONSTRAINT "orders_collection_point_id_collection_points_id_fk" FOREIGN KEY ("collection_point_id") REFERENCES "public"."collection_points"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "orders" ADD CONSTRAINT "orders_transporter_id_users_id_fk" FOREIGN KEY ("transporter_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint

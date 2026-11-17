@@ -5,7 +5,7 @@
  */
 import type { Db } from "@/db/client";
 import { smsOutbox } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { and, asc, eq, gte, lt } from "drizzle-orm";
 
 export interface SmsProvider {
   send(phone: string, body: string): Promise<{ ref?: string }>;
@@ -64,13 +64,47 @@ export function setSmsProvider(p: SmsProvider) {
 }
 
 export async function sendSms(db: Db, phone: string, body: string): Promise<void> {
+  const [row] = await db.insert(smsOutbox).values({ phone, body }).returning();
+  await attempt(db, row);
+}
+
+async function attempt(db: Db, row: typeof smsOutbox.$inferSelect): Promise<boolean> {
   provider ??= providerFromEnv();
-  const [row] = await db.insert(smsOutbox).values({ phone, body }).returning({ id: smsOutbox.id });
   try {
-    const { ref } = await provider.send(phone, body);
-    await db.update(smsOutbox).set({ status: "sent", providerRef: ref ?? null }).where(eq(smsOutbox.id, row.id));
+    const { ref } = await provider.send(row.phone, row.body);
+    await db
+      .update(smsOutbox)
+      .set({ status: "sent", providerRef: ref ?? null, attempts: row.attempts + 1 })
+      .where(eq(smsOutbox.id, row.id));
+    return true;
   } catch (err) {
     console.error("SMS send failed", err);
-    await db.update(smsOutbox).set({ status: "failed" }).where(eq(smsOutbox.id, row.id));
+    await db.update(smsOutbox).set({ status: "failed", attempts: row.attempts + 1 }).where(eq(smsOutbox.id, row.id));
+    return false;
   }
+}
+
+export const MAX_SMS_ATTEMPTS = 4;
+
+/**
+ * Retry failed messages (oldest first), up to MAX_SMS_ATTEMPTS each. Messages
+ * older than a day are left alone: a stale "your lot was reserved" text is
+ * more confusing than none, and they stay visible to admins as failed.
+ */
+export async function retryFailedSms(db: Db, limit = 20): Promise<{ retried: number; sent: number }> {
+  const rows = await db
+    .select()
+    .from(smsOutbox)
+    .where(
+      and(
+        eq(smsOutbox.status, "failed"),
+        lt(smsOutbox.attempts, MAX_SMS_ATTEMPTS),
+        gte(smsOutbox.createdAt, new Date(Date.now() - 24 * 3600 * 1000)),
+      ),
+    )
+    .orderBy(asc(smsOutbox.createdAt))
+    .limit(limit);
+  let sent = 0;
+  for (const r of rows) if (await attempt(db, r)) sent++;
+  return { retried: rows.length, sent };
 }

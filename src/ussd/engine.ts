@@ -81,7 +81,7 @@ async function farmerMenu(db: Db, user: User, path: string[]): Promise<string> {
     case "2": {
       const rows = (await lotsForFarmer(db, user.id)).slice(0, 4);
       if (rows.length === 0) return end("You have no lots yet.");
-      const lines = rows.map(({ lot }) => `#${lot.id} ${lot.quantityKg}kg ${lotStatusLabel(lot.status, lot.availableKg)}`);
+      const lines = rows.map(({ lot }) => `#${lot.id} ${lot.quantityKg || lot.declaredKg}kg ${lotStatusLabel(lot.status, lot.availableKg)}`);
       return end(lines.join("\n"));
     }
     case "3":
@@ -97,6 +97,7 @@ async function farmerMenu(db: Db, user: User, path: string[]): Promise<string> {
 }
 
 function lotStatusLabel(status: string, availableKg: number) {
+  if (status === "awaiting_checkin") return "to be weighed";
   if (status === "listed") return `${availableKg}kg unsold`;
   if (status === "sold_out") return "sold";
   return status;
@@ -118,7 +119,7 @@ async function sellFlow(db: Db, user: User, path: string[]): Promise<string> {
   }
   if (confirm !== "1") return end("Cancelled. Nothing was listed.");
   const lot = await listLot(db, user.id, { collectionPointId: cp.id, quantityKg: kg, minPricePerKgNgwee: ngwee });
-  return end(`Listed as lot #${lot.id}. We will SMS you when a buyer reserves it.`);
+  return end(`Lot #${lot.id} registered. Bring it to ${cp.name} to be weighed. Buyers see it after weighing.`);
 }
 
 async function confirmPaymentFlow(db: Db, user: User, path: string[]): Promise<string> {

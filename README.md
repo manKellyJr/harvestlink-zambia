@@ -2,17 +2,18 @@
 
 A commerce and fulfilment platform that lets smallholder farmers sell produce to bulk buyers, with transport arranged and payment made straight to the farmer's mobile money wallet on delivery.
 
-**Status:** Milestone 1 (marketplace core) — see [docs/scope.md](docs/scope.md) for what is built, what is not, and why.
+**Status:** MVP feature-complete (Milestones 1 and 2), awaiting a live test with Africa's Talking. See [docs/scope.md](docs/scope.md) for what is built and what is not, and [docs/go-live.md](docs/go-live.md) to deploy.
 
 ## How it works
 
 1. **Farmers** dial a USSD code on any phone, register, and list a lot (e.g. 300 kg of soybeans) at a nearby collection point with the lowest price they accept.
-2. **Buyers** log in to the website with an SMS code, see bulked supply per collection point and place an order at their price. Supply is reserved immediately from the oldest eligible lots.
-3. **Transporters** in that district get an SMS, accept the job over USSD, and mark it picked up.
-4. The **buyer** confirms delivery. HarvestLink then shows exactly what the buyer owes each farmer and the transporter, and to which MTN, Airtel or Zamtel wallet.
-5. The buyer pays each wallet directly and enters the transaction ID; each farmer confirms receipt over USSD. When everyone confirms, the order is complete.
+2. **Agents** at the collection point weigh and grade it (A or B) on their phone. Only weighed lots are offered, and farmers are paid on the weighed kg.
+3. **Buyers** log in to the website with an SMS code, see bulked supply per collection point and place an order at their price. Supply is reserved immediately from the oldest eligible lots.
+4. **Transporters** in that district get an SMS, accept the job over USSD, and mark it picked up.
+5. The **buyer** confirms delivery. HarvestLink then shows exactly what the buyer owes each farmer and the transporter, and to which MTN, Airtel or Zamtel wallet.
+6. The buyer pays each wallet directly and enters the transaction ID; each farmer confirms receipt over USSD. When everyone confirms, the order is complete.
 
-HarvestLink never receives or holds money in this version.
+HarvestLink never receives or holds money in this version. **Admins** manage collection points and accounts, resolve payment disputes and watch an overview.
 
 ## Stack
 
@@ -36,7 +37,7 @@ npm run db:seed              # pilot collection points + demo accounts
 npm run dev                  # http://localhost:3000
 ```
 
-- Buyer login: phone `0970000010`. SMS messages (including the login code) are printed in the terminal.
+- Web logins: buyer `0970000010`, agent `0970000050`, admin `0970000099`. SMS messages (including login codes) are printed in the terminal.
 - Try the USSD menu without a phone:
 
 ```bash
@@ -55,6 +56,7 @@ curl -X POST localhost:3000/api/ussd --data-urlencode "phoneNumber=+260970000001
 | `npm run db:generate` | Create a migration after changing `src/db/schema.ts` |
 | `npm run db:migrate` | Apply migrations (uses `DATABASE_URL` when set) |
 | `npm run db:seed` | Seed collection points (demo users only outside production) |
+| `npm run admin:create -- 0971234567 "Name"` | Create an admin from the command line (alternative to `BOOTSTRAP_ADMIN_PHONE`) |
 
 ## Environments
 
@@ -64,7 +66,7 @@ curl -X POST localhost:3000/api/ussd --data-urlencode "phoneNumber=+260970000001
 | SMS / USSD | Console log | Africa's Talking sandbox | Africa's Talking live |
 | Hosting | `npm run dev` | Vercel preview deployments | Vercel production |
 
-The app refuses to start in production without `DATABASE_URL` and `SESSION_SECRET`, refuses the console SMS provider on Vercel production, and rejects USSD requests without `USSD_WEBHOOK_KEY`.
+The app refuses to start in production without `DATABASE_URL` and `SESSION_SECRET`, refuses the console SMS provider on Vercel production, rejects USSD requests without `USSD_WEBHOOK_KEY`, and rejects the cron endpoint without `CRON_SECRET`.
 
 ## Code layout
 

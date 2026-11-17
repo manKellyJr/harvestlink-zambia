@@ -1,6 +1,6 @@
-import { and, asc, desc, eq, gt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, or, sql } from "drizzle-orm";
 import type { Db } from "@/db/client";
-import { collectionPoints, lots, type Lot } from "@/db/schema";
+import { collectionPoints, lots, users, type Grade, type Lot } from "@/db/schema";
 import { DomainError } from "./errors";
 import { limits, pilot } from "./config";
 import { requireRole } from "./users";
@@ -38,8 +38,7 @@ export async function listLot(
       farmerId,
       collectionPointId,
       crop: pilot.crop,
-      quantityKg,
-      availableKg: quantityKg,
+      declaredKg: quantityKg,
       minPricePerKgNgwee,
     })
     .returning();
@@ -47,12 +46,12 @@ export async function listLot(
   await sendSms(
     db,
     farmer.phone,
-    `HarvestLink: lot #${lot.id} listed. ${quantityKg}kg ${pilot.crop} at ${cp.name}, min ${formatKwacha(minPricePerKgNgwee)}/kg. We will SMS you when a buyer reserves it.`,
+    `HarvestLink: lot #${lot.id} registered (${quantityKg}kg ${pilot.crop}, min ${formatKwacha(minPricePerKgNgwee)}/kg). Bring it to ${cp.name} to be weighed and graded. Buyers can only reserve weighed lots.`,
   );
   return lot;
 }
 
-/** A farmer withdraws a lot. Only possible while none of it is allocated to an order. */
+/** A farmer withdraws a lot. Only possible before check-in, or while none of it is allocated. */
 export async function cancelLot(db: Db, farmerId: number, lotId: number): Promise<void> {
   await requireRole(db, farmerId, "farmer");
   const updated = await db
@@ -62,8 +61,10 @@ export async function cancelLot(db: Db, farmerId: number, lotId: number): Promis
       and(
         eq(lots.id, lotId),
         eq(lots.farmerId, farmerId),
-        eq(lots.status, "listed"),
-        eq(lots.availableKg, lots.quantityKg),
+        or(
+          eq(lots.status, "awaiting_checkin"),
+          and(eq(lots.status, "listed"), eq(lots.availableKg, lots.quantityKg)),
+        ),
       ),
     )
     .returning({ id: lots.id });
@@ -92,6 +93,7 @@ export async function supplyByCollectionPoint(db: Db) {
       name: collectionPoints.name,
       district: collectionPoints.district,
       availableKg: sql<number>`coalesce(sum(${lots.availableKg}), 0)::int`,
+      gradeAKg: sql<number>`coalesce(sum(${lots.availableKg}) filter (where ${lots.grade} = 'A'), 0)::int`,
       lots: sql<number>`count(${lots.id})::int`,
       lowestMinPriceNgwee: sql<number | null>`min(${lots.minPricePerKgNgwee})`,
     })
@@ -110,18 +112,68 @@ export async function supplyByCollectionPoint(db: Db) {
     .orderBy(asc(collectionPoints.name));
 }
 
-/** Kilograms available at a collection point for a buyer offering `pricePerKgNgwee`. */
-export async function availableAtPrice(db: Db, collectionPointId: number, pricePerKgNgwee: number) {
+/**
+ * Collection-point check-in. An agent weighs and grades the produce in front of
+ * the farmer. The weighed kg replaces the declared kg and is the only figure
+ * used for allocation and payment. Agents may only check in at their own point.
+ */
+export async function checkInLot(
+  db: Db,
+  agentId: number,
+  lotId: number,
+  result: { weighedKg: number; grade: Grade } | { reject: string },
+): Promise<Lot> {
+  const agent = await requireRole(db, agentId, "agent", "admin");
   const [row] = await db
-    .select({ kg: sql<number>`coalesce(sum(${lots.availableKg}), 0)::int` })
+    .select({ lot: lots, cpName: collectionPoints.name, farmerPhone: users.phone })
     .from(lots)
-    .where(
-      and(
-        eq(lots.collectionPointId, collectionPointId),
-        eq(lots.crop, pilot.crop),
-        eq(lots.status, "listed"),
-        sql`${lots.minPricePerKgNgwee} <= ${pricePerKgNgwee}`,
-      ),
-    );
-  return row.kg;
+    .innerJoin(collectionPoints, eq(lots.collectionPointId, collectionPoints.id))
+    .innerJoin(users, eq(lots.farmerId, users.id))
+    .where(eq(lots.id, lotId));
+  if (!row) throw new DomainError("Lot not found");
+  if (agent.role === "agent" && agent.collectionPointId !== row.lot.collectionPointId) {
+    throw new DomainError("This lot belongs to another collection point");
+  }
+
+  let set: Partial<typeof lots.$inferInsert>;
+  let sms: string;
+  if ("reject" in result) {
+    const reason = result.reject.trim();
+    if (reason.length < 3) throw new DomainError("Give a reason for rejecting the lot");
+    set = { status: "rejected", availableKg: 0 };
+    sms = `HarvestLink: lot #${lotId} was not accepted at ${row.cpName}: ${reason}. You can list again after fixing this.`;
+  } else {
+    const { weighedKg, grade } = result;
+    if (!Number.isInteger(weighedKg) || weighedKg < 1 || weighedKg > limits.maxLotKg) {
+      throw new DomainError("Enter the weighed kg as a whole number");
+    }
+    if (grade !== "A" && grade !== "B") throw new DomainError("Choose grade A or B");
+    set = { status: "listed", quantityKg: weighedKg, availableKg: weighedKg, grade };
+    sms = `HarvestLink: lot #${lotId} weighed at ${row.cpName}: ${weighedKg}kg, grade ${grade}. It is now offered to buyers. Keep it at the collection point.`;
+  }
+  const [updated] = await db
+    .update(lots)
+    .set({ ...set, checkedInAt: new Date(), checkedInBy: agentId })
+    .where(and(eq(lots.id, lotId), eq(lots.status, "awaiting_checkin")))
+    .returning();
+  if (!updated) throw new DomainError("This lot has already been checked in or cancelled");
+  await audit(db, {
+    actorId: agentId,
+    action: "reject" in result ? "lot.reject" : "lot.checkin",
+    entity: "lot",
+    entityId: lotId,
+    details: { ...result, declaredKg: row.lot.declaredKg },
+  });
+  await sendSms(db, row.farmerPhone, sms);
+  return updated;
+}
+
+/** Lots waiting to be weighed at a collection point, oldest first. */
+export async function lotsAwaitingCheckin(db: Db, collectionPointId: number) {
+  return db
+    .select({ lot: lots, farmerName: users.name, farmerPhone: users.phone })
+    .from(lots)
+    .innerJoin(users, eq(lots.farmerId, users.id))
+    .where(and(eq(lots.collectionPointId, collectionPointId), eq(lots.status, "awaiting_checkin")))
+    .orderBy(asc(lots.createdAt));
 }

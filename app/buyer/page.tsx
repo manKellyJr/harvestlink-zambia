@@ -37,19 +37,25 @@ export default async function BuyerHome({ searchParams }: { searchParams: Promis
             <select name="collectionPointId" required defaultValue={prev.cp}>
               {supply.map((s) => (
                 <option key={s.collectionPointId} value={s.collectionPointId}>
-                  {s.name} ({s.availableKg.toLocaleString()} kg{s.lowestMinPriceNgwee ? `, from ${formatKwacha(s.lowestMinPriceNgwee)}/kg` : ""})
+                  {s.name} ({s.availableKg.toLocaleString()} kg, {s.gradeAKg.toLocaleString()} kg grade A{s.lowestMinPriceNgwee ? `, from ${formatKwacha(s.lowestMinPriceNgwee)}/kg` : ""})
                 </option>
               ))}
             </select>
           </label>
           <label>Quantity (kg)<input name="quantityKg" type="number" min={50} step={1} required defaultValue={prev.kg} /></label>
+          <label>Minimum grade
+            <select name="minGrade" defaultValue={prev.grade ?? "B"}>
+              <option value="B">Grade B or better</option>
+              <option value="A">Grade A only</option>
+            </select>
+          </label>
           <label>Your price per kg (K)<input name="pricePerKg" inputMode="decimal" placeholder="10.00" required defaultValue={prev.price} /></label>
           <label>Transport fee you will pay (K)<input name="transportFee" inputMode="decimal" placeholder="1500" defaultValue={prev.fee} /></label>
           <label style={{ gridColumn: "1 / -1" }}>Delivery address<input name="deliveryAddress" required minLength={5} defaultValue={prev.addr} /></label>
           <div><button type="submit">Place order</button></div>
         </form>
         <p className="muted" style={{ marginBottom: 0 }}>
-          Supply is reserved from farmers whose minimum price is at or below yours. On delivery you pay each farmer and the transporter directly to their mobile money wallet.
+          All produce is weighed and graded at the collection point before it is offered. Supply is reserved from farmers whose minimum price is at or below yours. On delivery you pay each farmer and the transporter directly to their mobile money wallet.
         </p>
       </div>
 

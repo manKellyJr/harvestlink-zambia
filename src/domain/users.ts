@@ -54,3 +54,18 @@ export async function requireRole(db: Db, userId: number, ...roles: Role[]): Pro
   if (!roles.includes(u.role)) throw new DomainError("You are not allowed to do this");
   return u;
 }
+
+/**
+ * First-admin bootstrap for a fresh deployment: if no admin exists yet and the
+ * number matches BOOTSTRAP_ADMIN_PHONE, create the admin account. Login still
+ * requires the SMS code sent to that phone. Once any admin exists this does nothing.
+ */
+export async function bootstrapAdmin(db: Db, phone: string, env: Record<string, string | undefined> = process.env): Promise<User | undefined> {
+  if (!env.BOOTSTRAP_ADMIN_PHONE) return undefined;
+  if (normalisePhone(env.BOOTSTRAP_ADMIN_PHONE) !== phone) return undefined;
+  const [existing] = await db.select({ id: users.id }).from(users).where(eq(users.role, "admin")).limit(1);
+  if (existing) return undefined;
+  const [u] = await db.insert(users).values({ phone, name: "Administrator", role: "admin", consentAt: new Date() }).returning();
+  await audit(db, { actorId: u.id, action: "user.bootstrap_admin", entity: "user", entityId: u.id });
+  return u;
+}

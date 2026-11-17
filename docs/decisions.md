@@ -32,3 +32,12 @@ Short records of the decisions that shape the system. Add a new entry rather tha
 ## 7. Bulking by allocation, not by batch
 **Decision:** an order reserves kilograms from many lots at one collection point (oldest first, only lots whose minimum price is at or below the offer). Lots can be split across orders.
 **Why:** farmers keep control of their minimum price, buyers get one large consignment, and fair first-come ordering is easy to explain to farmer groups.
+
+## 8. Weigh-in by HarvestLink agents at the collection point
+**Decision:** a lot is offered to buyers only after an agent (a HarvestLink field officer assigned to one collection point) weighs and grades it on the agent web page. Payment uses the weighed kg, never the farmer's USSD estimate.
+**Why:** this removes the two biggest delivery disputes (short weight and poor quality) before money is involved, and it confirms the produce is physically at the point, which reduces side-selling.
+**Trade-off:** each collection point needs an agent with a phone and a scale on collection days. The agent page is plain server-rendered HTML so it works on low-end Android phones.
+
+## 9. Operating a deployment without local database access
+**Decision:** migrations run in the Vercel build (`vercel-build`); the first admin is created by logging in with `BOOTSTRAP_ADMIN_PHONE`; collection points and staff are managed in the admin console.
+**Why:** the owner never needs a database password on their own computer, and every production change goes through an audited screen.

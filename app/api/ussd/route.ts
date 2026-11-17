@@ -6,7 +6,9 @@
  */
 import { timingSafeEqual } from "node:crypto";
 import { getDb } from "@/db/client";
+import { after } from "next/server";
 import { handleUssd } from "@/ussd/engine";
+import { retryFailedSms } from "@/sms";
 
 function keyOk(given: string | null): boolean {
   const expected = process.env.USSD_WEBHOOK_KEY;
@@ -22,6 +24,9 @@ export async function POST(req: Request) {
   const form = await req.formData();
   const phoneNumber = String(form.get("phoneNumber") ?? "");
   const text = String(form.get("text") ?? "");
-  const reply = await handleUssd(await getDb(), { phoneNumber, text });
+  const db = await getDb();
+  const reply = await handleUssd(db, { phoneNumber, text });
+  // Retry a few failed SMS after the response is sent, so the farmer never waits on it.
+  after(() => retryFailedSms(db, 5).catch((e) => console.error("SMS retry failed", e)));
   return new Response(reply, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
 }

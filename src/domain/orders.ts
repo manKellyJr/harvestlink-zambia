@@ -5,7 +5,7 @@
  */
 import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import type { Db } from "@/db/client";
-import { allocations, collectionPoints, lots, orders, payouts, users, type Order } from "@/db/schema";
+import { allocations, collectionPoints, lots, orders, payouts, users, type Grade, type Order } from "@/db/schema";
 import { DomainError } from "./errors";
 import { limits, pilot } from "./config";
 import { requireRole } from "./users";
@@ -26,6 +26,8 @@ export interface PlaceOrderInput {
   pricePerKgNgwee: number;
   transportFeeNgwee: number;
   deliveryAddress: string;
+  /** "B" (default) accepts grade A and B lots; "A" accepts grade A only. */
+  minGrade?: Grade;
 }
 
 /**
@@ -38,6 +40,8 @@ export async function placeOrder(db: Db, buyerId: number, input: PlaceOrderInput
   await requireRole(db, buyerId, "buyer");
   const { collectionPointId, quantityKg, pricePerKgNgwee, transportFeeNgwee } = input;
   const deliveryAddress = input.deliveryAddress.trim();
+  const minGrade: Grade = input.minGrade ?? "B";
+  if (minGrade !== "A" && minGrade !== "B") throw new DomainError("Choose grade A or B");
   if (!Number.isInteger(quantityKg) || quantityKg < limits.minLotKg || quantityKg > limits.maxOrderKg) {
     throw new DomainError(`Order between ${limits.minLotKg} and ${limits.maxOrderKg} kg`);
   }
@@ -63,6 +67,7 @@ export async function placeOrder(db: Db, buyerId: number, input: PlaceOrderInput
           eq(lots.status, "listed"),
           gt(lots.availableKg, 0),
           sql`${lots.minPricePerKgNgwee} <= ${pricePerKgNgwee}`,
+          minGrade === "A" ? eq(lots.grade, "A") : undefined,
         ),
       )
       .orderBy(asc(lots.createdAt), asc(lots.id))
@@ -70,12 +75,14 @@ export async function placeOrder(db: Db, buyerId: number, input: PlaceOrderInput
 
     const total = candidates.reduce((s, c) => s + c.lot.availableKg, 0);
     if (total < quantityKg) {
-      throw new DomainError(`Only ${total} kg available at ${cp.name} for ${formatKwacha(pricePerKgNgwee)}/kg or less`);
+      throw new DomainError(
+        `Only ${total} kg${minGrade === "A" ? " of grade A" : ""} available at ${cp.name} for ${formatKwacha(pricePerKgNgwee)}/kg or less`,
+      );
     }
 
     const [o] = await tx
       .insert(orders)
-      .values({ buyerId, collectionPointId, crop: pilot.crop, quantityKg, pricePerKgNgwee, transportFeeNgwee, deliveryAddress })
+      .values({ buyerId, collectionPointId, crop: pilot.crop, quantityKg, pricePerKgNgwee, minGrade, transportFeeNgwee, deliveryAddress })
       .returning();
 
     let remaining = quantityKg;

@@ -88,12 +88,20 @@ export async function confirmPayout(db: Db, payeeId: number, payoutId: number, r
     );
     return;
   }
+  await completeOrderIfSettled(db, order.id);
+}
+
+/** Mark a delivered order completed once every payout on it is confirmed. */
+export async function completeOrderIfSettled(db: Db, orderId: number) {
   const unconfirmed = await db
     .select({ id: payouts.id })
     .from(payouts)
-    .where(and(eq(payouts.orderId, order.id), ne(payouts.status, "confirmed")));
-  if (unconfirmed.length === 0) {
-    await db.update(orders).set({ status: "completed" }).where(and(eq(orders.id, order.id), eq(orders.status, "delivered")));
-    await audit(db, { actorId: null, action: "order.complete", entity: "order", entityId: order.id });
-  }
+    .where(and(eq(payouts.orderId, orderId), ne(payouts.status, "confirmed")));
+  if (unconfirmed.length > 0) return;
+  const done = await db
+    .update(orders)
+    .set({ status: "completed" })
+    .where(and(eq(orders.id, orderId), eq(orders.status, "delivered")))
+    .returning({ id: orders.id });
+  if (done.length) await audit(db, { actorId: null, action: "order.complete", entity: "order", entityId: orderId });
 }
